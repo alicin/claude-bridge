@@ -22,29 +22,28 @@ def get_default_model():
 class ContentPart(BaseModel):
     """Content part for multimodal messages (OpenAI format)."""
 
-    type: Literal["text"]
-    text: str
+    type: str
+    text: Optional[str] = None
 
 
 class Message(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: Union[str, List[ContentPart]]
+    role: Literal["system", "developer", "user", "assistant", "tool", "function"]
+    content: Union[str, List[ContentPart], None] = None
     name: Optional[str] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_call_id: Optional[str] = None
 
     @model_validator(mode="after")
     def normalize_content(self):
         """Convert array content to string for Claude Code compatibility."""
         if isinstance(self.content, list):
-            # Extract text from content parts and concatenate
             text_parts = []
             for part in self.content:
-                if isinstance(part, ContentPart) and part.type == "text":
+                if part.type == "text" and part.text is not None:
                     text_parts.append(part.text)
-                elif isinstance(part, dict) and part.get("type") == "text":
-                    text_parts.append(part.get("text", ""))
-
-            # Join all text parts with newlines
-            self.content = "\n".join(text_parts) if text_parts else ""
+                elif part.type in ("image_url", "image", "input_image"):
+                    text_parts.append("[image omitted]")
+            self.content = "\n".join(text_parts)
 
         return self
 
@@ -83,6 +82,10 @@ class ChatCompletionRequest(BaseModel):
     stream_options: Optional[StreamOptions] = Field(
         default=None, description="Options for streaming responses"
     )
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    parallel_tool_calls: Optional[bool] = None
+    response_format: Optional[Dict[str, Any]] = None
 
     @field_validator("n")
     @classmethod
@@ -206,7 +209,9 @@ class ChatCompletionRequest(BaseModel):
 class Choice(BaseModel):
     index: int
     message: Message
-    finish_reason: Optional[Literal["stop", "length", "content_filter", "null"]] = None
+    finish_reason: Optional[Literal["stop", "length", "tool_calls", "content_filter", "null"]] = (
+        None
+    )
 
 
 class Usage(BaseModel):
@@ -228,7 +233,9 @@ class ChatCompletionResponse(BaseModel):
 class StreamChoice(BaseModel):
     index: int
     delta: Dict[str, Any]
-    finish_reason: Optional[Literal["stop", "length", "content_filter", "null"]] = None
+    finish_reason: Optional[Literal["stop", "length", "tool_calls", "content_filter", "null"]] = (
+        None
+    )
 
 
 class ChatCompletionStreamResponse(BaseModel):

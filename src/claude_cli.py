@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import atexit
@@ -9,6 +10,16 @@ import logging
 from claude_agent_sdk import query, ClaudeAgentOptions
 
 logger = logging.getLogger(__name__)
+
+MAX_CONCURRENCY = int(os.getenv("MAX_CONCURRENCY", "3"))
+
+# Every query runs with Claude Code's own tools, settings, CLAUDE.md, skills, hooks
+# and MCP off so a request can never act on this machine; we only want the model.
+SANDBOX_EXTRA_ARGS = {
+    "safe-mode": None,
+    "disable-slash-commands": None,
+    "no-session-persistence": None,
+}
 
 
 class ClaudeCodeCLI:
@@ -51,6 +62,21 @@ class ClaudeCodeCLI:
         # Store auth environment variables for SDK
         self.claude_env_vars = auth_manager.get_claude_code_env_vars()
 
+        cli_path = os.getenv("CLAUDE_CLI_PATH")
+        self.cli_path = shutil.which(cli_path) or cli_path if cli_path else None
+        self._semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+
+    def _sandboxed_options(self, **kwargs) -> ClaudeAgentOptions:
+        return ClaudeAgentOptions(
+            cwd=self.cwd,
+            cli_path=self.cli_path,
+            tools=[],
+            setting_sources=[],
+            strict_mcp_config=True,
+            extra_args=dict(SANDBOX_EXTRA_ARGS),
+            **kwargs,
+        )
+
     async def verify_cli(self) -> bool:
         """Verify Claude Agent SDK is working and authenticated."""
         try:
@@ -60,10 +86,8 @@ class ClaudeCodeCLI:
             messages = []
             async for message in query(
                 prompt="Hello",
-                options=ClaudeAgentOptions(
-                    max_turns=1,
-                    cwd=self.cwd,
-                    system_prompt={"type": "preset", "preset": "claude_code"},
+                options=self._sandboxed_options(
+                    max_turns=1, system_prompt="Reply with the single word: ok"
                 ),
             ):
                 messages.append(message)
@@ -116,62 +140,42 @@ class ClaudeCodeCLI:
                     os.environ[key] = value
 
             try:
-                # Build SDK options
-                options = ClaudeAgentOptions(max_turns=max_turns, cwd=self.cwd)
-
-                # Set model if specified
-                if model:
-                    options.model = model
-
-                # Set system prompt - CLAUDE AGENT SDK STRUCTURED FORMAT
-                # Use structured format as per SDK documentation
-                if system_prompt:
-                    options.system_prompt = {"type": "text", "text": system_prompt}
-                else:
-                    # Use Claude Code preset to maintain expected behavior
-                    options.system_prompt = {"type": "preset", "preset": "claude_code"}
-
-                # Set tool restrictions
-                if allowed_tools:
-                    options.allowed_tools = allowed_tools
-                if disallowed_tools:
-                    options.disallowed_tools = disallowed_tools
-
-                # Set permission mode (needed for tool execution in API context)
-                if permission_mode:
-                    options.permission_mode = permission_mode
-
-                # Handle session continuity
-                if continue_session:
-                    options.continue_session = True
-                elif session_id:
-                    options.resume = session_id
+                options = self._sandboxed_options(
+                    max_turns=max_turns,
+                    model=model or None,
+                    system_prompt=system_prompt or "You are a helpful assistant.",
+                )
+                if allowed_tools or permission_mode or session_id or continue_session:
+                    logger.warning(
+                        "Ignoring tools/permission/session options: the bridge runs sandboxed"
+                    )
 
                 # Run the query and yield messages
-                async for message in query(prompt=prompt, options=options):
-                    # Debug logging
-                    logger.debug(f"Raw SDK message type: {type(message)}")
-                    logger.debug(f"Raw SDK message: {message}")
+                async with self._semaphore:
+                    async for message in query(prompt=prompt, options=options):
+                        # Debug logging
+                        logger.debug(f"Raw SDK message type: {type(message)}")
+                        logger.debug(f"Raw SDK message: {message}")
 
-                    # Convert message object to dict if needed
-                    if hasattr(message, "__dict__") and not isinstance(message, dict):
-                        # Convert object to dict for consistent handling
-                        message_dict = {}
+                        # Convert message object to dict if needed
+                        if hasattr(message, "__dict__") and not isinstance(message, dict):
+                            # Convert object to dict for consistent handling
+                            message_dict = {}
 
-                        # Get all attributes from the object
-                        for attr_name in dir(message):
-                            if not attr_name.startswith("_"):  # Skip private attributes
-                                try:
-                                    attr_value = getattr(message, attr_name)
-                                    if not callable(attr_value):  # Skip methods
-                                        message_dict[attr_name] = attr_value
-                                except:
-                                    pass
+                            # Get all attributes from the object
+                            for attr_name in dir(message):
+                                if not attr_name.startswith("_"):  # Skip private attributes
+                                    try:
+                                        attr_value = getattr(message, attr_name)
+                                        if not callable(attr_value):  # Skip methods
+                                            message_dict[attr_name] = attr_value
+                                    except:
+                                        pass
 
-                        logger.debug(f"Converted message dict: {message_dict}")
-                        yield message_dict
-                    else:
-                        yield message
+                            logger.debug(f"Converted message dict: {message_dict}")
+                            yield message_dict
+                        else:
+                            yield message
 
             finally:
                 # Restore original environment (if we changed anything)

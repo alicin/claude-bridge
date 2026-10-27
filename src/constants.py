@@ -74,7 +74,11 @@ DEFAULT_DISALLOWED_TOOLS = [
 # Operators can override the advertised model list without rebuilding the image:
 #   CLAUDE_MODELS_OVERRIDE=claude-sonnet-4-6,claude-opus-4-6
 DEFAULT_CLAUDE_MODELS = [
-    # Claude 4.6 Family (Latest) - RECOMMENDED
+    # Claude 5.5 Family (Latest)
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    # Claude 4.6 Family
     "claude-opus-4-6",  # Most capable
     "claude-sonnet-4-6",  # Recommended - best coding model
     # Claude 4.5 Family (Fall 2025)
@@ -98,13 +102,13 @@ CLAUDE_MODELS = (
 # stores it in RESOLVED_DEFAULT_MODEL. DEFAULT_MODEL_FALLBACK is used until/if
 # that resolution succeeds.
 DEFAULT_MODEL_ENV: Optional[str] = os.getenv("DEFAULT_MODEL")
-DEFAULT_MODEL_FALLBACK = "claude-sonnet-4-6"
+DEFAULT_MODEL_FALLBACK = "claude-sonnet-5-5"
 DEFAULT_MODEL = DEFAULT_MODEL_ENV or DEFAULT_MODEL_FALLBACK
 RESOLVED_DEFAULT_MODEL: Optional[str] = None
 
 # Fast model (for speed/cost optimization)
 # Can be overridden via FAST_MODEL environment variable
-FAST_MODEL = os.getenv("FAST_MODEL", "claude-haiku-4-5-20251001")
+FAST_MODEL = os.getenv("FAST_MODEL", "claude-haiku-5-5")
 
 # Anthropic Models API configuration for dynamically refreshing /v1/models
 ANTHROPIC_MODELS_URL = os.getenv("ANTHROPIC_MODELS_URL", "https://api.anthropic.com/v1/models")

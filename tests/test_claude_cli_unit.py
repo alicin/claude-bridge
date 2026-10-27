@@ -548,7 +548,7 @@ class TestClaudeCodeCLIRunCompletion:
 
             assert len(captured_options) == 1
             opts = captured_options[0]
-            assert opts.system_prompt == {"type": "text", "text": "You are helpful"}
+            assert opts.system_prompt == "You are helpful"
 
     @pytest.mark.asyncio
     async def test_run_completion_with_model(self, cli_instance):
@@ -568,7 +568,7 @@ class TestClaudeCodeCLIRunCompletion:
 
     @pytest.mark.asyncio
     async def test_run_completion_with_tool_restrictions(self, cli_instance):
-        """run_completion sets allowed/disallowed tools."""
+        """Requested tools are ignored: every query runs with Claude Code's tools off."""
         mock_message = {"type": "assistant"}
         captured_options = []
 
@@ -584,12 +584,18 @@ class TestClaudeCodeCLIRunCompletion:
             ):
                 pass
 
-            assert captured_options[0].allowed_tools == ["Bash", "Read"]
-            assert captured_options[0].disallowed_tools == ["Task"]
+            opts = captured_options[0]
+            assert opts.tools == []
+            assert opts.allowed_tools == []
+            assert opts.setting_sources == []
+            assert opts.strict_mcp_config is True
+            assert {"safe-mode", "disable-slash-commands", "no-session-persistence"} <= set(
+                opts.extra_args
+            )
 
     @pytest.mark.asyncio
     async def test_run_completion_with_permission_mode(self, cli_instance):
-        """run_completion sets permission_mode."""
+        """Requested permission modes are ignored by the sandbox."""
         mock_message = {"type": "assistant"}
         captured_options = []
 
@@ -601,11 +607,11 @@ class TestClaudeCodeCLIRunCompletion:
             async for _ in cli_instance.run_completion("Hello", permission_mode="acceptEdits"):
                 pass
 
-            assert captured_options[0].permission_mode == "acceptEdits"
+            assert captured_options[0].permission_mode is None
 
     @pytest.mark.asyncio
     async def test_run_completion_continue_session(self, cli_instance):
-        """run_completion sets continue_session option."""
+        """Session continuation is ignored: every query is stateless."""
         mock_message = {"type": "assistant"}
         captured_options = []
 
@@ -617,11 +623,11 @@ class TestClaudeCodeCLIRunCompletion:
             async for _ in cli_instance.run_completion("Hello", continue_session=True):
                 pass
 
-            assert captured_options[0].continue_session is True
+            assert captured_options[0].continue_conversation is False
 
     @pytest.mark.asyncio
     async def test_run_completion_resume_session(self, cli_instance):
-        """run_completion sets resume option for session_id."""
+        """Session resume is ignored: every query is stateless."""
         mock_message = {"type": "assistant"}
         captured_options = []
 
@@ -633,7 +639,7 @@ class TestClaudeCodeCLIRunCompletion:
             async for _ in cli_instance.run_completion("Hello", session_id="sess-123"):
                 pass
 
-            assert captured_options[0].resume == "sess-123"
+            assert captured_options[0].resume is None
 
     @pytest.mark.asyncio
     async def test_run_completion_converts_objects_to_dicts(self, cli_instance):
